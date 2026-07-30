@@ -106,8 +106,6 @@ All parameters are adjustable via the sidebar:
 
 [MIT](LICENSE)
 
----
-
 ## 🇫🇷 Version française
 
 ### Aperçu
