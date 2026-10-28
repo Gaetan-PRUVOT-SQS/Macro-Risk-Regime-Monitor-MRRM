@@ -256,6 +256,47 @@ def test_quantile_prefix_ignores_later_shock():
     assert before.tolist() == _prefix_quantile_labels(history, 3)
 
 
+def test_quantile_constant_sample_stays_on_the_cut():
+    """Échantillon plat : pas strictement sous le seuil, donc Stress ou Neutre."""
+    flat = pd.Series([2.0, 2.0, 2.0, 2.0])
+    two, _, tag_two = mrrm.detect_regimes(flat, 2, "Quantile", 1)
+    three, _, tag_three = mrrm.detect_regimes(flat, 3, "Quantile", 1)
+    assert tag_two == "Quantile"
+    assert tag_three == "Quantile"
+    assert two.tolist() == ["STRESS", "STRESS", "STRESS", "STRESS"]
+    assert three.tolist() == ["NEUTRAL", "NEUTRAL", "NEUTRAL", "NEUTRAL"]
+
+
+def test_quantile_ignores_a_missing_stress_point():
+    """Un trou dans l'indice sort de l'échantillon avant le seuil du préfixe."""
+    stress = pd.Series([5.0, np.nan, 1.0, 1.0])
+    regime, probs, tag = mrrm.detect_regimes(stress, 2, "Quantile", 1)
+    assert tag == "Quantile"
+    assert probs is None
+    assert regime.tolist() == ["STRESS", "RISK_ON", "STRESS"]
+    assert regime.index.equals(stress.dropna().index)
+
+
+def test_duration_filter_rewrites_a_finished_quantile_day():
+    """Durée minimale 2 : le jour Risk-On déjà refermé prend l'étiquette d'avant."""
+    stress = pd.Series([5.0, 1.0, 1.0])
+    kept, _, _ = mrrm.detect_regimes(stress, 2, "Quantile", 1)
+    absorbed, _, _ = mrrm.detect_regimes(stress, 2, "Quantile", 2)
+    assert kept.tolist() == ["STRESS", "RISK_ON", "STRESS"]
+    assert absorbed.tolist() == ["STRESS", "STRESS", "STRESS"]
+
+
+def test_gmm_failure_uses_the_same_prefix_cuts(monkeypatch):
+    def boom(self, X, y=None):
+        raise ValueError("singular")
+
+    monkeypatch.setattr(mrrm.GaussianMixture, "fit", boom)
+    regime, probs, tag = mrrm.detect_regimes(pd.Series([5.0, 1.0, 1.0]), 2, "GMM", 1)
+    assert tag == "Quantile (model fit failed)"
+    assert probs is None
+    assert regime.tolist() == ["STRESS", "RISK_ON", "STRESS"]
+
+
 def test_missing_spx_session_is_not_a_zero_return():
     index = pd.bdate_range("2020-01-01", periods=16)
     prices = np.array(
@@ -278,6 +319,68 @@ def test_missing_spx_session_is_not_a_zero_return():
     filled_vol = float(np.diff(np.log(filled.to_numpy()))[-8:].std(ddof=1) * np.sqrt(252) * 100)
     assert np.isclose(got, expected)
     assert not np.isclose(filled_vol, expected)
+
+
+def test_five_missing_spx_sessions_stay_out_of_vol():
+    """Cinq séances sans cours : l'ancien remplissage les aurait recopiées."""
+    index = pd.bdate_range("2020-01-01", periods=18)
+    prices = np.arange(100.0, 118.0)
+    holed = pd.Series(prices, index=index)
+    holed.iloc[10:15] = np.nan
+    frame = mrrm._prepare_market_frame(
+        {"SPX": holed, "VIX": pd.Series(np.full(18, 18.0), index=index)}
+    )
+    assert all(day not in frame.index for day in index[10:15])
+    got = mrrm.build_stress_indicators(frame, 6)["RVol"].iloc[-1]
+    observed_prices = np.delete(prices, np.arange(10, 15))
+    returns = np.diff(np.log(observed_prices))
+    expected = float(returns[-6:].std(ddof=1) * np.sqrt(252) * 100)
+    filled = holed.ffill()
+    filled_vol = float(np.diff(np.log(filled.to_numpy()))[-6:].std(ddof=1) * np.sqrt(252) * 100)
+    assert np.isclose(got, expected)
+    assert not np.isclose(filled_vol, expected)
+
+
+def test_non_positive_spx_print_is_left_out_of_vol():
+    """Un cours nul reste dans le cadre. Il ne compte pas comme une séance imprimée."""
+    index = pd.bdate_range("2020-01-01", periods=10)
+    prices = np.array([100, 101, 102, 103, 104, 105, 106, 0, 108, 109], dtype=float)
+    frame = pd.DataFrame(
+        {"SPX": prices, "VIX": np.full(10, 18.0)},
+        index=index,
+    )
+    indicators = mrrm.build_stress_indicators(frame, 4)
+    observed = prices[prices > 0]
+    returns = np.diff(np.log(observed))
+    expected = float(returns[-4:].std(ddof=1) * np.sqrt(252) * 100)
+    copied = prices.copy()
+    copied[7] = 106.0
+    copied_vol = float(np.diff(np.log(copied))[-4:].std(ddof=1) * np.sqrt(252) * 100)
+    assert len(indicators) == 10
+    assert pd.isna(indicators["RVol"].iloc[7])
+    assert np.isclose(indicators["RVol"].iloc[-1], expected)
+    assert not np.isclose(copied_vol, expected)
+
+
+def test_level_gap_stays_filled_beside_a_missing_spx_session():
+    """Le trou de niveau se remplit. Le trou du S&P 500, dans le même cadre, sort."""
+    index = pd.bdate_range("2020-01-01", periods=12)
+    spx = pd.Series(np.linspace(100.0, 111.0, 12), index=index)
+    hyg = pd.Series(np.linspace(80.0, 91.0, 12), index=index)
+    previous = float(hyg.iloc[2])
+    spx.iloc[8] = np.nan
+    hyg.iloc[3:8] = np.nan
+    frame = mrrm._prepare_market_frame(
+        {
+            "SPX": spx,
+            "VIX": pd.Series(np.full(12, 18.0), index=index),
+            "HYG": hyg,
+        }
+    )
+    assert index[8] not in frame.index
+    assert frame["HYG"].isna().sum() == 0
+    assert np.isclose(frame.loc[index[3], "HYG"], previous)
+    assert np.isclose(frame.loc[index[7], "HYG"], previous)
 
 
 def test_events_just_outside_the_sample_stay_within_tolerance():
