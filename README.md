@@ -6,7 +6,7 @@ Local page that tracks market stress. It downloads a few Yahoo series, turns the
 
 ## Français
 
-Tu lances la page, tu choisis depuis quand regarder (2007 par défaut). La barre latérale règle la longueur des fenêtres, le nombre de régimes et la méthode. Les cours sont mis en cache six heures. Le bouton Clear cache force un nouveau téléchargement.
+La page se lance en local. La date de départ se règle dans la barre latérale, 2007 par défaut. Cette barre règle aussi la longueur des fenêtres, le nombre de régimes et la méthode. Les cours restent en cache six heures. Le bouton Clear cache relance le téléchargement.
 
 En haut, le régime en cours et le niveau de l'indice. Dessous : la courbe, les facteurs en z-score, les poids du jour, une heatmap, le S&P 500 coloré par régime, et un tableau de dates de crise connues (2008, 2011, 2015, 2018, 2020, 2022, 2024). Un bouton exporte le CSV. Une série optionnelle qui ne joint plus la fin est laissée de côté, avec un avertissement. S&P 500 et VIX sont obligatoires.
 
@@ -21,7 +21,7 @@ Les cours viennent de Yahoo Finance, prix ajustés.
 
 L'indice monte quand le stress monte. Chaque facteur est d'abord comparé aux séances d'avant : la moyenne et l'écart-type s'arrêtent à la veille, pour qu'un choc du jour ne fabrique pas sa propre norme. Ces z-scores sont résumés par le premier axe d'une ACP calculée seulement sur les séances passées (504 par défaut, proche des 500 séances utilisées par l'OFR). Le poids du VIX est gardé positif. Zéro, c'est la norme récente. Au-dessus, le stress dépasse cette norme.
 
-Le régime préféré est un HMM à deux ou trois états (Kritzman, Page et Turkington, 2012). Si l'ajustement échoue, la page passe à un GMM, puis à des quantiles. Un régime déjà terminé et trop court est absorbé par le précédent. Celui qui est encore en cours reste affiché, même s'il vient de commencer. Ces étiquettes sont estimées sur tout l'échantillon chargé : elles peuvent changer si on rallonge l'historique. Les valeurs déjà calculées de l'indice ne bougent pas.
+Le régime préféré est un HMM à deux ou trois états (Kritzman, Page et Turkington, 2012). Si l'ajustement échoue, la page passe à un GMM, puis à des quantiles. Un régime déjà terminé et trop court est absorbé par le précédent. Celui qui est encore en cours reste affiché, même s'il vient de commencer. Ces étiquettes sont estimées sur tout l'échantillon chargé : elles peuvent changer quand l'historique s'allonge. Les valeurs déjà calculées de l'indice ne bougent pas.
 
 L'OFR publie son indice à partir de 33 séries. Ici il y en a quatre. L'idée reprise est la même : un niveau qui monte avec le stress, des poids estimés sur le passé, et aucune séance future dans le calcul du jour.
 
@@ -52,7 +52,7 @@ La campagne, les techniques et le dernier passage sont dans [tests/README.md](te
 
 ## English
 
-Open the page and pick a start date (2007 by default). The sidebar sets the windows, the number of regimes and the method. Prices stay in cache for six hours. Clear cache downloads them again.
+The page runs locally. The start date is set in the sidebar, 2007 by default. The sidebar also sets the windows, the number of regimes and the method. Prices stay in cache for six hours. Clear cache downloads them again.
 
 The top of the page shows the current regime and the index level. Below that: the curve, factor z-scores, today's loadings, a heatmap, the S&P 500 colored by regime, and a table of known stress dates (2008, 2011, 2015, 2018, 2020, 2022, 2024). A button exports the CSV. An optional series that no longer reaches the end is dropped, with a warning. S&P 500 and VIX are required.
 
