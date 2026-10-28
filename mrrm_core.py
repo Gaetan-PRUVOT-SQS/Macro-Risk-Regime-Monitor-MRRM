@@ -138,7 +138,8 @@ def _prepare_market_frame(series_map: dict[str, pd.Series]) -> pd.DataFrame:
     if isinstance(combined.index, pd.DatetimeIndex) and combined.index.tz is not None:
         combined.index = combined.index.tz_localize(None)
     combined = combined[~combined.index.duplicated(keep="last")]
-    combined = combined.ffill(limit=_FILL_LIMIT)
+    level_columns = [column for column in combined.columns if column != "SPX"]
+    combined[level_columns] = combined[level_columns].ffill(limit=_FILL_LIMIT)
 
     anchor = combined.dropna(subset=list(_REQUIRED))
     if anchor.empty:
@@ -197,14 +198,31 @@ def build_stress_indicators(df: pd.DataFrame, vol_window: int) -> pd.DataFrame:
         slope = long_yield - short_yield
         indicators["Curve"] = -slope
 
-    price = df["SPX"].where(df["SPX"] > 0)
-    log_return = np.log(price).diff()
-    indicators["RVol"] = (
+    indicators["RVol"] = _session_realized_vol(df["SPX"], vol_window)
+    return pd.DataFrame(indicators, index=df.index)
+
+
+def _session_realized_vol(price: pd.Series, vol_window: int) -> pd.Series:
+    """Close-to-close vol of sessions that printed a price."""
+    observed = price.where(price > 0).dropna()
+    log_return = np.log(observed).diff()
+    vol = (
         log_return.rolling(vol_window, min_periods=vol_window).std(ddof=1)
         * np.sqrt(252)
         * 100
     )
-    return pd.DataFrame(indicators, index=df.index)
+    return vol.reindex(price.index)
+
+
+def _linear_quantile(sample: np.ndarray, probability: float) -> float:
+    ordered = np.sort(sample)
+    if ordered.size == 1:
+        return float(ordered[0])
+    position = probability * (ordered.size - 1)
+    left = int(position)
+    right = min(left + 1, ordered.size - 1)
+    weight = position - left
+    return float(ordered[left] * (1.0 - weight) + ordered[right] * weight)
 
 
 def _stress_sign_index(columns: pd.Index) -> int | None:
@@ -385,16 +403,24 @@ def _fit_hmm(samples: np.ndarray, n_states: int):
 
 
 def _quantile_labels(stress: pd.Series, n_states: int) -> pd.Series:
-    if n_states == 2:
-        threshold = stress.quantile(0.50)
-        labels = np.where(stress < threshold, "RISK_ON", "STRESS")
-    else:
-        low, high = stress.quantile(0.33), stress.quantile(0.67)
-        labels = np.select(
-            [stress < low, stress > high],
-            ["RISK_ON", "STRESS"],
-            default="NEUTRAL",
-        )
+    """Cut each day with the sample that ends that day, today included."""
+    values = stress.to_numpy(dtype=float)
+    labels = np.empty(len(values), dtype=object)
+    for end in range(1, len(values) + 1):
+        sample = values[:end]
+        current = float(sample[-1])
+        if n_states == 2:
+            threshold = _linear_quantile(sample, 0.5)
+            labels[end - 1] = "RISK_ON" if current < threshold else "STRESS"
+        else:
+            low = _linear_quantile(sample, 0.33)
+            high = _linear_quantile(sample, 0.67)
+            if current < low:
+                labels[end - 1] = "RISK_ON"
+            elif current > high:
+                labels[end - 1] = "STRESS"
+            else:
+                labels[end - 1] = "NEUTRAL"
     return pd.Series(labels, index=stress.index)
 
 

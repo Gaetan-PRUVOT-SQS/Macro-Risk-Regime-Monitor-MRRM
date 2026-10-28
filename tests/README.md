@@ -21,7 +21,7 @@ Depuis la racine du projet, avec le virtualenv déjà installé :
 - Monin, The OFR Financial Stress Index, OFR Working Paper 17-04, 2017. Une date ne dépend pas de ce qui arrive après. Un indicateur monte quand le stress monte.
 - Présentation OFR au FRAC, 20 juillet 2017. Les poids viennent des séances passées, puis on projette le jour.
 - Kritzman, Page et Turkington, Financial Analysts Journal, 2012. Un régime de Markov tient mieux qu'un seuil fixe, à cause de la persistance.
-- Le contrat du code : le z-score du jour exclut le jour, l'ACP aussi, le poids du VIX (puis RVol, Credit, Curve) reste positif, la tolérance d'une date de crise est un nombre de jours calendaires inclusif, la chaîne envoyée au téléchargement est une date `YYYY-MM-DD`.
+- Le contrat du code : le z-score du jour exclut le jour, l'ACP aussi, le poids du VIX (puis RVol, Credit, Curve) reste positif, la tolérance d'une date de crise est un nombre de jours calendaires inclusif, la chaîne envoyée au téléchargement est une date `YYYY-MM-DD`. Une séance SPX sans cours sort de la volatilité. Le seuil Quantile d'une date est celui du préfixe qui finit ce jour-là.
 
 ## Risques
 
@@ -40,7 +40,7 @@ Le niveau système (ouvrir la page Streamlit) n'est pas dans cette campagne.
 |--------|-----------|----------------|
 | M1 indice causal | métamorphique | `test_core.py` : `test_past_stress_ignores_future`, `test_last_day_does_not_rewrite_history` |
 | M2 dernier score ACP | oracle sklearn | `test_last_score_matches_window_pca` |
-| M3 facteurs | partitions, valeur connue | `test_credit_rises_when_hyg_falls`, `test_curve_shares_scale_when_bill_median_is_low`, `test_curve_percent_quote_not_rescaled`, `test_rvol_matches_annualized_log_std` |
+| M3 facteurs | partitions, valeur connue | `test_credit_rises_when_hyg_falls`, `test_curve_shares_scale_when_bill_median_is_low`, `test_curve_percent_quote_not_rescaled`, `test_rvol_matches_annualized_log_std`, `test_missing_spx_session_is_not_a_zero_return` |
 | M4 régimes | table de décision | `test_detect_regimes_*`, repli HMM, GMM, quantile |
 | M5 données | limites | médiane 15, trou de 5 et de 6, série morte, colonnes Yahoo |
 | M6 dates | limites | écart de 5 jours gardé, écart de 6 retiré |
@@ -49,7 +49,7 @@ Le niveau système (ouvrir la page Streamlit) n'est pas dans cette campagne.
 | M9 échelle des deux taux | table, MC/DC du `ou` | `test_yield_pair_scale_decision_table` (5 règles) |
 | M10 fenêtres | MC/DC du `ou`, limite | `test_window_bounds_are_independent` |
 | M11 durée d'un régime | transitions, MC/DC du `et` | flicker juste sous le minimum, pile au minimum, début court conservé, durée 1 |
-| M12 quantiles | limites | `test_quantile_two_states_boundary`, `test_quantile_three_states_boundaries` |
+| M12 quantiles | limites, métamorphique | `test_quantile_two_states_boundary`, `test_quantile_three_states_boundaries`, `test_quantile_prefix_ignores_later_shock` |
 | M13 bords de l'échantillon | limites | `test_events_just_outside_the_sample_stay_within_tolerance`, `test_zero_stress_is_not_above_average` |
 | M14 entrées hostiles | supposition d'erreur | date, mois sans zéro, doublon, une seule jambe, z plat, signature yfinance, signe sans VIX, vol sur 2 séances, 1 état |
 
@@ -57,13 +57,15 @@ Le niveau système (ouvrir la page Streamlit) n'est pas dans cette campagne.
 
 ## Dernier passage
 
-2026-10-28, `.venv/bin/pytest` via coverage.
+2026-10-28, `.venv/bin/python -m coverage run --branch -m pytest -q`, puis `coverage report -m --include='mrrm_core.py,mrrm_plots.py'`.
 
-- 87 cas passés, 0 échoué, 0 sauté, 1,50 s.
+- 89 cas passés, 0 échoué, 0 sauté, 1,52 s.
 - 48 avertissements, tous dans `hmmlearn` avec NumPy 2.5.
-- Branches : `mrrm_core.py` 97 %, `mrrm_plots.py` 99 %, total 98 %.
-- Compilation des trois modules et de `tests/test_campagne.py` : ok.
-- Scan de la baseline sur le code et les deux fichiers de test : sortie 0.
+- Branches : `mrrm_core.py` 98 % (342 instructions, 7 manquées, 144 branches, 5 partielles), `mrrm_plots.py` 99 %, total 98 %.
+- Compilation de `mrrm.py`, `mrrm_core.py`, `mrrm_plots.py` et `tests/test_campagne.py` : ok.
+- Scan de la baseline sur `mrrm_core.py`, `mrrm.py`, `tests/test_campagne.py` et `README.md` : sortie 0.
+
+Les deux cas ajoutés ce jour-là ont d'abord échoué sur l'ancien calcul. Le trou du 17 janvier 2020 restait dans le cadre, cours recopié. Le préfixe Quantile changeait dès qu'un choc était collé à la fin. Après le correctif, les quatre cas du jour et la suite entière passent.
 
 Incident corrigé dans cette campagne. Une date de crise placée un jour avant la première séance, ou un jour après la dernière, disparaissait du tableau alors que la tolérance était de 1 jour. Le samedi situé entre les deux séances, lui, restait. Le cas a échoué avant le correctif (`1 failed` : il manquait `2020-01-02` et `2020-01-07`), puis la suite complète est passée. La fenêtre comparée à l'échantillon est élargie de la tolérance. L'écart en jours reste le juge.
 
