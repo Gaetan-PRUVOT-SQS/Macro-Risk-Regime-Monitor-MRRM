@@ -16,8 +16,8 @@ import mrrm_plots as plots
 st.set_page_config(page_title="MRRM", layout="wide")
 st.title("Macro Risk Regime Monitor")
 st.caption(
-    "Rolling z-score and rolling PCA use only data known that day. "
-    "Regime history is fit on the loaded sample and can be revised."
+    "Rolling z-score, rolling PCA and quantile regimes use only data known that day. "
+    "HMM and GMM history is fit on the loaded sample and can be revised."
 )
 
 if not core._HMM_AVAILABLE:
