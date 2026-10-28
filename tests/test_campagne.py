@@ -196,26 +196,88 @@ def test_min_duration_one_keeps_a_single_day(monkeypatch):
     assert regime.tolist() == ["RISK_ON", "STRESS", "RISK_ON", "RISK_ON"]
 
 
+def _linear_quantile(values, probability):
+    """Quantile linéaire de type 7, posé à part du code de production."""
+    ordered = np.sort(np.asarray(values, dtype=float))
+    if ordered.size == 1:
+        return float(ordered[0])
+    position = probability * (ordered.size - 1)
+    left = int(position)
+    right = min(left + 1, ordered.size - 1)
+    weight = position - left
+    return float(ordered[left] * (1.0 - weight) + ordered[right] * weight)
+
+
+def _prefix_quantile_labels(values, n_states):
+    labels = []
+    for end in range(1, len(values) + 1):
+        sample = values[:end]
+        current = sample[-1]
+        if n_states == 2:
+            threshold = _linear_quantile(sample, 0.5)
+            labels.append("RISK_ON" if current < threshold else "STRESS")
+        else:
+            low = _linear_quantile(sample, 0.33)
+            high = _linear_quantile(sample, 0.67)
+            if current < low:
+                labels.append("RISK_ON")
+            elif current > high:
+                labels.append("STRESS")
+            else:
+                labels.append("NEUTRAL")
+    return labels
+
+
 def test_quantile_two_states_boundary():
-    stress = pd.Series([1.0, 2.0, 3.0])
+    """Égal au seuil du préfixe : Stress. Le premier point est son propre seuil."""
+    stress = pd.Series([5.0, 1.0, 1.0])
     regime, probs, tag = mrrm.detect_regimes(stress, 2, "Quantile", 1)
     assert tag == "Quantile"
     assert probs is None
-    assert regime.tolist() == ["RISK_ON", "STRESS", "STRESS"]
+    assert regime.tolist() == ["STRESS", "RISK_ON", "STRESS"]
+    assert regime.tolist() == _prefix_quantile_labels(stress.tolist(), 2)
 
 
 def test_quantile_three_states_boundaries():
     stress = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     regime, _probs, tag = mrrm.detect_regimes(stress, 3, "Quantile", 1)
     assert tag == "Quantile"
-    assert regime.tolist() == [
-        "RISK_ON",
-        "RISK_ON",
-        "NEUTRAL",
-        "NEUTRAL",
-        "STRESS",
-        "STRESS",
-    ]
+    assert regime.iloc[0] == "NEUTRAL"
+    assert regime.iloc[-1] == "STRESS"
+    assert regime.tolist() == _prefix_quantile_labels(stress.tolist(), 3)
+
+
+def test_quantile_prefix_ignores_later_shock():
+    history = [1.0, 1.2, 0.8, 1.1, 0.7, 1.0, 1.3]
+    shock = history + [40.0, 45.0, -20.0]
+    before, _, _ = mrrm.detect_regimes(pd.Series(history), 3, "Quantile", 1)
+    after, _, _ = mrrm.detect_regimes(pd.Series(shock), 3, "Quantile", 1)
+    assert before.tolist() == after.iloc[: len(history)].tolist()
+    assert before.tolist() == _prefix_quantile_labels(history, 3)
+
+
+def test_missing_spx_session_is_not_a_zero_return():
+    index = pd.bdate_range("2020-01-01", periods=16)
+    prices = np.array(
+        [
+            100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0,
+            108.0, 109.0, 110.0, 111.0, 140.0, 112.0, 113.0, 114.0,
+        ]
+    )
+    holed = pd.Series(prices, index=index)
+    holed.iloc[12] = np.nan
+    frame = mrrm._prepare_market_frame(
+        {"SPX": holed, "VIX": pd.Series(np.full(16, 18.0), index=index)}
+    )
+    assert index[12] not in frame.index
+    got = mrrm.build_stress_indicators(frame, 8)["RVol"].iloc[-1]
+    observed_prices = np.delete(prices, 12)
+    returns = np.diff(np.log(observed_prices))
+    expected = float(returns[-8:].std(ddof=1) * np.sqrt(252) * 100)
+    filled = pd.Series(prices, index=index).ffill()
+    filled_vol = float(np.diff(np.log(filled.to_numpy()))[-8:].std(ddof=1) * np.sqrt(252) * 100)
+    assert np.isclose(got, expected)
+    assert not np.isclose(filled_vol, expected)
 
 
 def test_events_just_outside_the_sample_stay_within_tolerance():
