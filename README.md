@@ -1,81 +1,53 @@
 # Macro Risk Regime Monitor (MRRM)
 
-[Français](#français) · [English](#english)
+Dashboard de stress de marché. Quatre facteurs, un indice par ACP glissante, puis un régime.
 
-Dashboard de stress macro-financier (PCA, régimes dynamiques).
-
-Macro-financial stress dashboard with dynamic PCA regimes.
-
----
+Market stress dashboard. Four factors, a rolling-PCA index, then a regime.
 
 ## Français
 
-### Présentation
+L'indice du jour n'utilise que les données connues ce jour-là. Allonger l'historique ne réécrit pas les dates déjà calculées.
 
-MRRM agrège plusieurs facteurs de stress de marché en un **indice composite** via une Analyse en Composantes Principales (PCA), puis classe les conditions de marché en régimes discrets (Risk-On, Neutre, Stress) à l’aide de modèles statistiques (HMM / GMM).
+| Facteur | Série | Lecture |
+|---------|--------|---------|
+| VIX | `^VIX` | niveau |
+| Credit | HYG / IEF | −log du ratio. Plus le crédit high yield est faible, plus le facteur monte |
+| Curve | `^TNX` − `^IRX` | l'opposé de la pente 10 ans − 3 mois |
+| RVol | `^GSPC` | vol réalisée, log-rendements, fenêtre glissante, annualisée |
 
-L’approche s’inspire de méthodologies institutionnelles — notamment l’[OFR Financial Stress Index](https://www.financialresearch.gov/financial-stress-index/) et le cadre de détection de régimes de Kritzman, Page & Turkington (*Financial Analysts Journal*, 2012).
+Le z-score compare le jour à la fenêtre précédente (le jour n'entre pas dans sa norme). Les poids d'ACP sont ceux des séances passées (504 par défaut, proche des 500 séances de l'OFR). Le poids du VIX est forcé positif.
 
-### Facteurs de stress (aperçu)
-
-| Facteur | Source | Orientation |
-|---------|--------|-------------|
-| **VIX** | Indice de volatilité CBOE | Niveau — vol implicite |
-| **RVol** | Rendements S&P 500 | Vol réalisée 21 jours, annualisée |
-
-### Objectifs
-
-- Suivre le stress macro-financier en temps quasi réel
-- Visualiser les régimes de marché
-- Combiner PCA et détection de régimes de façon lisible
-
-### Stack
-
-- Python
-- Analyse de données / visualisation (dashboard)
-
-### Lancer
-
-Voir les scripts et dépendances du dépôt (`requirements`, notebooks ou app dashboard selon la structure du projet).
+Le régime préféré est un HMM (Kritzman, Page et Turkington, 2012). S'il ne s'ajuste pas, la page passe au GMM, puis à des quantiles. L'historique des régimes est estimé sur l'échantillon chargé : il peut changer. L'indice, non.
 
 ```bash
-pip install -r requirements.txt
-# puis lancer l'application / le notebook principal
+uv venv .venv
+uv pip install -r requirements.txt -r requirements-dev.txt --python .venv/bin/python
+.venv/bin/streamlit run mrrm.py
+.venv/bin/pytest
 ```
 
----
+Campagne de test : [tests/README.md](tests/README.md).
 
 ## English
 
-### Overview
+The index on a date uses only data known that day. Extending history does not rewrite earlier dates.
 
-MRRM aggregates several market stress factors into a **composite index** using Principal Component Analysis (PCA), then classifies market conditions into discrete regimes (Risk-On, Neutral, Stress) with statistical models (HMM / GMM).
+| Factor | Series | Reading |
+|--------|--------|---------|
+| VIX | `^VIX` | level |
+| Credit | HYG / IEF | minus log of the ratio. Weaker high yield credit raises the factor |
+| Curve | `^TNX` minus `^IRX` | opposite of the 10-year minus 3-month slope |
+| RVol | `^GSPC` | realized vol from log returns, rolling window, annualized |
 
-The approach draws from institutional methodologies — notably the [OFR Financial Stress Index](https://www.financialresearch.gov/financial-stress-index/) and Kritzman, Page & Turkington’s regime framework (*Financial Analysts Journal*, 2012).
+The z-score compares today with the previous window (today is not in its own norm). PCA loadings use past sessions only (default 504, near the OFR 500). The VIX loading is kept positive.
 
-### Stress factors (overview)
-
-| Factor | Source | Orientation |
-|--------|--------|-------------|
-| **VIX** | CBOE Volatility Index | Level — implied vol |
-| **RVol** | S&P 500 returns | 21-day realized vol, annualized |
-
-### Goals
-
-- Track macro-financial stress in near real time
-- Visualize market regimes
-- Combine PCA and regime detection in a readable dashboard
-
-### Stack
-
-- Python
-- Data analysis / visualization (dashboard)
-
-### Run
-
-See repository scripts and dependencies (`requirements`, notebooks, or main app).
+The preferred regime model is an HMM. If it does not fit, the page uses a GMM, then quantiles. Regime history is fit on the loaded sample and can change. The index does not.
 
 ```bash
-pip install -r requirements.txt
-# then start the main app / notebook
+uv venv .venv
+uv pip install -r requirements.txt -r requirements-dev.txt --python .venv/bin/python
+.venv/bin/streamlit run mrrm.py
+.venv/bin/pytest
 ```
+
+Test campaign: [tests/README.md](tests/README.md).
